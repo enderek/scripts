@@ -1,0 +1,663 @@
+#!/usr/bin/perl -w
+
+eval 'exec /usr/bin/perl -w -S $0 ${1+"$@"}'
+    if 0; # not running under some shell
+
+# nfstop - simple tool for monitoring nfs activity per second
+# "interface" based on mytop,v 1.53 by jzawodny
+# display NFS operations like `top' or 'mytop' :)
+# tested on Centos 5
+# TODO: read data from nfsstat (for nfs v3, nfs v4, retrans, etc)
+
+use 5.005;
+use strict;
+use Getopt::Long;
+use Data::Dumper;
+
+$main::VERSION = "0.1";
+
+$|=1;
+$0 = 'nfstop';
+
+## Test for color support.
+
+eval { require Term::ANSIColor; };
+
+my $HAS_COLOR = $@ ? 0 : 1;
+
+## Test of Time::HiRes support
+
+eval { require Time::HiRes };
+
+my $HAS_TIME = $@ ? 0 : 1;
+
+my $debug = 0;
+
+# Prototypes
+sub GetData();
+sub Clear();
+sub PrintHelp();
+
+## Try to lower our priority (which, who, pri)
+
+setpriority(0,0,10);
+
+## Default Config Values
+
+my %config = (
+    batchmode     => 0,
+    color         => 1,
+    delay         => 5,
+    header        => 1,
+    help          => 0,
+    zero          => 0,
+    mode          => 'top',
+    sort          => 0,         # default or reverse sort ("s")
+);
+
+my (%STATUS, %OLD_STATUS); # header stuff.
+
+my $CLEAR = `clear`;
+
+## Term::ReadKey values
+
+my $RM_RESET   = 0;
+my $RM_NOBLKRD = 3; ## using 4 traps Ctrl-C :-(
+
+## Read the user's config file, if it exists.
+
+my $config = "$ENV{HOME}/.nfstop";
+
+if (-e $config)
+{
+    if (open CFG, "<$config")
+    {
+        while (<CFG>)
+        {
+            next if /^\s*$/;  ## skip blanks
+            next if /^\s*#/;  ## skip comments
+
+            chomp;
+
+	    if (/(\S+)\s*=\s*(.*\S)/)
+            {
+                $config{lc $1} = $2 if exists $config{lc $1};
+            }
+        }
+        close CFG;
+    }
+}
+
+## Command-line args.
+
+use vars qw($opt_foo);
+
+Getopt::Long::Configure('no_ignore_case', 'bundling');
+
+GetOptions(
+    "color!"              => \$config{color},
+    "delay|s=i"           => \$config{delay},
+    "header!"             => \$config{header},
+    "zero|z"              => \$config{zero},
+    "mode|m=s"            => \$config{mode},
+    "sort=s"              => \$config{sort},
+    "help"                => \$config{help},
+);
+
+## Don't use Term::ReadKey unless running interactively.
+
+if (not $config{batchmode})
+{
+    require Term::ReadKey;
+    Term::ReadKey->import();
+}
+
+## User may want to disable color.
+
+if ($HAS_COLOR and not $config{color})
+{
+    $HAS_COLOR = 0;
+}
+
+if ($HAS_COLOR)
+{
+    import Term::ANSIColor ':constants';
+}
+else
+{
+    *RESET  = sub { };
+    *YELLOW = sub { };
+    *RED    = sub { };
+    *GREEN  = sub { };
+    *BLUE   = sub { };
+    *WHITE  = sub { };
+    *BOLD   = sub { };
+}
+
+my $RESET  = RESET()   || '';
+my $YELLOW = YELLOW()  || '';
+my $RED    = RED()     || '';
+my $GREEN  = GREEN()   || '';
+my $BLUE   = BLUE()    || '';
+my $WHITE  = WHITE()   || '';
+my $BOLD   = BOLD()    || '';
+
+ReadMode($RM_RESET) unless $config{batchmode};
+
+## Get static data
+
+my $db_version;
+my $have_query_cache;
+
+#########################################################################
+##
+## The main loop
+##
+#########################################################################
+
+ReadMode($RM_NOBLKRD)  unless $config{batchmode};
+
+# print "Main Loop $config{mode}\n";
+
+while (1)
+{
+    my $key;
+
+    if($config{help}){
+        Clear();
+        PrintOptionsHelp();
+        ReadKey(0);
+        next;
+    };
+    
+    if ($config{mode} eq 'top')
+    {
+        # print "  -> top mode \n";
+        GetData();
+        # print "  -> afer GetData \n";
+        last if $config{batchmode};
+        $key = ReadKey($config{delay});
+        next unless $key;
+    }
+    elsif ($config{mode} eq 'status')
+    {
+        GetShowStatus();
+        last if $config{batchmode};
+        $key = ReadKey($config{delay});
+        next unless $key;
+    }
+
+    ##
+    ## keystroke command processing (if we get this far)
+    ##
+
+    # t - top
+
+    if ($key =~ /t/i)
+    {
+        $config{mode} = 'top';
+    }
+
+    ## q - quit
+
+    if ($key eq 'q')
+    {
+        cmd_q();
+    }
+
+    if ($key eq 'D')
+    {
+        require Data::Dumper;
+        print Data::Dumper::Dumper([\%config]);
+        ReadKey(0);
+    }
+
+    ## s - seconds of delay
+
+    if ($key eq 's')
+    {
+        cmd_s();
+        next;
+    }
+
+    ## F - remove all filters
+
+    if ($key eq 'F')
+    {
+        $config{zero} = 0;
+        print RED(), "-- display unfiltered --", RESET();
+        sleep 1;
+        next;
+    }
+
+    ## p - pause
+
+    if ($key eq 'p')
+    {
+        print RED(), "-- paused. press any key to resume --", RESET();
+        ReadKey(0);
+        next;
+    }
+
+    ## z - zero toggle
+
+    if ($key =~ /z/)
+    {
+        if ($config{zero})
+        {
+            $config{zero} = 0;
+            $config{sort} = 1;
+            print RED(), "-- 0 (no io) rpc calls unfiltered --", RESET();
+            sleep 1;
+        }
+        else
+        {
+            $config{zero} = 1;
+            $config{sort} = 0;
+            print RED(), "-- zero (no io) rpc calls filtered --", RESET();
+            sleep 1;
+        }
+    }
+
+    ## o - sort order
+
+    if ($key =~ /o/)
+    {
+        if ($config{sort})
+        {
+            $config{sort} = 0;
+            print RED(), "-- sort order reversed --", RESET();
+            sleep 1;
+        }
+        else
+        {
+            $config{sort} = 1;
+            print RED(), "-- sort order reversed --", RESET();
+            sleep 1;
+        }
+    }
+
+    ## ? - help
+
+    if ($key eq '?')
+    {
+        Clear();
+        PrintHelp();
+        ReadKey(0);
+        next;
+    }
+
+    ## # - magic debug key
+
+    if ($key eq '#')
+    {
+        $debug = 1;
+    }
+
+    if ($key eq 'V')
+    {
+        GetShowVariables();
+        print RED(), "-- paused. press any key to resume --", RESET();
+        ReadKey(0);
+    };
+};
+
+ReadMode($RM_RESET) unless $config{batchmode};
+
+exit;
+
+#######################################################################
+
+sub Clear()
+{
+        print "$CLEAR";
+}
+
+my $last_time;
+
+sub GetData()
+{
+    ## Get terminal info
+    my $now_time;
+
+    my ($width, $height, $wpx, $hpx, $lines_left);
+
+    if (not $config{batchmode})
+    {
+        ($width, $height, $wpx, $hpx) = GetTerminalSize();
+        $lines_left = $height - 2;
+    }
+    else
+    {
+        $height = 999_999;     ## I hope you don't have more than that!
+        $lines_left = 999_999;
+        $width = 80;
+    }
+
+    ##
+    ## Header stuff.
+    ##
+        my @recs = GetNfsData();
+
+        ## if the server died or we lost connectivity
+        if (not @recs)
+        {
+            ReadMode($RM_RESET);
+            exit 1;
+        }
+
+        ## get high-res or low-res time
+        my ($t_delta);
+
+        if ($HAS_TIME)
+        {
+            $now_time = Time::HiRes::gettimeofday();
+        }
+        else
+        {
+            $now_time = time;
+        }
+
+        if ($last_time and $last_time != $now_time)
+        {
+          $t_delta = $now_time - $last_time;
+        }
+
+        %OLD_STATUS = %STATUS;
+
+        foreach my $ref (@recs)
+        {
+            my $key = $ref->{Operation} || "--";
+            my $val = $ref->{Value} || 0;
+            #print "$key : $val\n";
+            $STATUS{$key} = $val;
+        }
+
+        $STATUS{test} ||= 1; ## can't divide by zero next
+        $last_time = $now_time;
+
+        ## Server Uptime in meaningful terms...
+        my $uptimetmp = `cat /proc/uptime | awk ' {print $1}'`;
+        
+        my $time         = int($uptimetmp);
+        my ($d,$h,$m,$s) = (0, 0, 0, 0);
+
+        $d += int($time / (60*60*24)); $time -= $d * (60*60*24);
+        $h += int($time / (60*60));    $time -= $h * (60*60);
+        $m += int($time / (60));       $time -= $m * (60);
+        $s += int($time);
+
+        my $uptime = sprintf("%d+%02d:%02d:%02d", $d, $h, $m, $s);
+
+        ## NFS io (rpc calls) per second...
+
+        my $avg_io_per_sec  = sprintf("%.2f", $STATUS{all_io} / int($uptimetmp));
+        my $num_io          = $STATUS{all_io};
+
+        my @t = localtime(time);
+
+        my $current_time = sprintf "[%02d:%02d:%02d]", $t[2], $t[1], $t[0];
+
+        my $host_width = 52;
+        my $up_width   = $width - $host_width;
+
+        Clear() unless $config{batchmode};
+        print RESET();
+
+        printf "%${up_width}s\n", "up $uptime $current_time";
+        $lines_left--;
+
+        my %STATUS_DELTA;
+        
+        if ($t_delta)
+        {
+          my $q_diff = ( $STATUS{all_io} - $OLD_STATUS{all_io} );
+
+          foreach my $tmpkey (keys %STATUS){
+             $STATUS_DELTA{$tmpkey} = (($STATUS{$tmpkey} -  $OLD_STATUS{$tmpkey})/$t_delta);
+          };
+
+         #printf("             ios now: %4.0f \n", ($STATUS{all_io} - $OLD_STATUS{all_io}) / $t_delta);
+          printf("avg io/s (rpc calls/s): %5.0f \n", $avg_io_per_sec);
+          printf("io/s (rpc calls/s) now: %5.0f \n", $STATUS_DELTA{all_io});
+        }
+        else
+        {
+            print "${YELLOW}Please wait (refresh in $config{delay} seconds)${RESET}\n";
+            #print "\n";
+        }
+        $lines_left--;
+        print "\n\n";
+
+        $lines_left--;
+
+    if (not $config{batchmode} and not $config{header})
+    {
+        Clear();
+        print RESET();
+    }
+
+    ##
+    ## Threads
+    ##
+
+    #my $sz = $width - 52;
+    my @sz   = (15, 10);
+    my $used = scalar(@sz) + Sum(@sz);
+    my $free = $width - $used;
+
+    print BOLD();
+
+    printf "%15s %10s \n", 'Operation','calls/s';
+
+    print RESET();
+
+    ##      Id User Host DB
+    printf "%15s %10s \n", '-----------','----';
+
+    $lines_left -= 2;
+
+    my @data = @recs;
+
+    ## Sort by io/s
+
+    my @sorted;
+
+    if (not $config{sort})
+    {
+        @sorted = sort { $STATUS_DELTA{$a} <=> $STATUS_DELTA{$b} } keys %STATUS_DELTA;
+    }
+    else
+    {
+        @sorted = sort { $STATUS_DELTA{$b} <=> $STATUS_DELTA{$a} } keys %STATUS_DELTA;    
+        # @sorted = sort keys %STATUS_DELTA;
+    }
+
+    foreach my $oper (@sorted)
+    {
+
+        if ($HAS_COLOR)
+        {
+           # $oper->{Command} = '';
+           # print YELLOW() if $oper->{Command} eq 'Query';
+           # print WHITE()  if $oper->{Command} eq 'Sleep';
+           # print GREEN()  if $oper->{Command} eq 'Connect';
+        }
+
+        if(((!$config{zero}) || ($STATUS_DELTA{$oper}>0)) && ($oper ne '--' && $oper ne 'all_io')){
+           if($STATUS_DELTA{$oper}<1 && $STATUS_DELTA{$oper}>0){
+              # print "debug: $oper $STATUS_DELTA{$oper} \n";
+              printf "%15s %10.2f \n", $oper, $STATUS_DELTA{$oper};
+           }
+           else{
+              printf "%15s %10d \n", $oper, $STATUS_DELTA{$oper};
+           };
+           
+        };
+        print RESET() if $HAS_COLOR;
+
+        $lines_left--;
+
+        last if $lines_left == 0;
+
+    }
+
+}
+
+###########################################################################
+
+sub cmd_s
+{
+    ReadMode($RM_RESET);
+
+    print RED(), "Seconds of Delay: ", RESET();
+    my $secs = ReadLine(0);
+
+    if ($secs =~ /^\s*(\d+)/)
+    {
+        $config{delay} = $1;
+        if ($config{delay} < 1)
+        {
+            $config{delay} = 1;
+        }
+    }
+    ReadMode($RM_NOBLKRD);
+}
+
+sub cmd_q
+{
+    ReadMode($RM_RESET);
+    print "\n";
+    exit;
+}
+
+###########################################################################
+
+sub PrintHelp()
+{
+    my $help = qq[
+Help for nfstop version $main::VERSION by Lukasz Jaworski <${YELLOW}ender\@g4sa.net${RESET}>
+(based on mytop by Jeremy D. Zawodny <${YELLOW}Jeremy\@Zawodny.com${RESET}>)
+
+  ? - display this screen
+  F - unFilter the dispaly
+  z - toggle the display of 0 io/s (rpc calls/s)
+  p - pause the display
+  o - reverse the sort order (toggle)
+  q - quit
+  s - change the delay between screen updates
+
+];
+
+    print $help;
+}
+
+sub PrintOptionsHelp()
+{
+    my $help = qq[
+Help for nfstop version $main::VERSION by Lukasz Jaworski <${YELLOW}ender\@g4sa.net${RESET}>
+(based on mytop by Jeremy D. Zawodny <${YELLOW}Jeremy\@Zawodny.com${RESET}>)
+Usage: $0
+  --delay SECONDS
+  --zero          - disable/enable display 0 io/s
+  --help          
+];
+
+    print $help;
+   exit 1;
+}
+
+sub Sum(@)
+{
+    my $sum;
+    while (my $val = shift @_) { $sum += $val; }
+    return $sum;
+}
+
+## A useful routine from perlfaq
+
+sub commify($)
+{
+    local $_  = shift;
+    return 0 unless defined $_;
+    1 while s/^([-+]?\d+)(\d{3})/$1,$2/;
+    return $_;
+}
+
+## Compact numeric representation (10,000 -> 10.0k)
+
+sub make_short($)
+{
+    my $number = shift;
+    return commify($number) if $config{long_nums};
+    my $n = 0;
+    while ($number > 1_025) { $number /= 1024; $n++; };
+    return sprintf "%.1f%s", $number, ('','k','M','G', 'T')[$n];
+}
+
+sub GetNfsData 
+{
+
+   my $operation = {
+1 => '--',
+2 => 'getattr',
+3 => 'setattr',
+4 => 'lookup',
+5 => 'access',
+6 => 'readlink',
+7 => 'read',
+8 => 'write',
+9 => 'create',
+10 => 'mkdir',
+11 => 'symlink',
+12 => 'mknod',
+13 => 'remove',
+14 => 'rmdir',
+15 => 'rename',
+16 => 'link',
+17 => 'readdir',
+18 => 'readdirplus',
+19 => 'fsstat',
+20 => 'fsinfo',
+21 => 'pathconf',
+22 => 'commit',
+};
+
+
+   open FILE, "/proc/net/rpc/nfs" or die "Can't open file /proc/net/rpc/nfs: $!\n";
+   my @ret;
+   
+   while(<FILE>){
+      if(/proc3/){
+         my @tmp=$_=~/\s+(\d+)/sg;
+
+         my $io=0;
+         my $counter=0;
+         foreach my $t (@tmp){
+            if($counter<=22 && $counter>0){
+               my $oper = $operation->{$counter};
+               my $iohash;
+               $iohash->{$oper} = $t if defined $t;
+               $iohash->{Operation} = $oper;
+               $iohash->{Value} = $t;
+               $io = $io+$t;
+               push @ret,$iohash;
+           };
+               $counter=$counter+1;
+        };
+        my $iohasht;
+        $iohasht->{Operation} = "all_io";
+        $iohasht->{Value} = $io;
+        push @ret,$iohasht;
+      };
+   };
+   close FILE;
+   return @ret;
+}
+
+=eat
+
+nfstop is licensed under the GNU General Public License version 2. For the
+full license information, please visit http://www.gnu.org/copyleft/gpl.html
+
+=cut
