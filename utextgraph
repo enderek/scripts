@@ -46,7 +46,7 @@ sar -q | awk '{print \$1," ",\$5}' | perl utextgraph --c=2 --w=1 --time
 exit;
 };
 
-if(defined @ARGV){
+if(defined($ARGV[0])){
    @vals=@ARGV;
    foreach(@vals){
       if(/^--([^\s]+)\=([^\s]+)/){
