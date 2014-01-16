@@ -1,4 +1,3 @@
-
 nfstop - simple tool for monitoring nfs activity 
 
 tbg - simple text graph, example "sar -q":
@@ -25,3 +24,10 @@ Max: 4.06	Step: 0.309
                                                          
 
 Min: 0.97
+
+utextgraph - new version of tbg :)
+txt graph with UTF characters
+example:
+
+Min: 0.40       Max: 2.98       Step: 0.3225
+▁▁▁▁▁▁▁▁▄▅▂▁▁▁▁▁▁▁▁▁▂▁▁▁▁▁▂▂▂▂▁▁▁▁▁▁▁▁▂▆█▅▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▁▁▂▁▁▁▁▁▁▁▁▁▁▁▂▁▁▂▁▁▁▁▁▂▁▁▂▁▁▂▁▁▂▁▁▄▁▁▁▁▁▂▁▁▁▁▁▁▁▁▁
