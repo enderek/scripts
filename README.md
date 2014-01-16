@@ -30,7 +30,7 @@ Min: 0.97
 -----------------------------------------------------------------------------
 
 utextgraph - new version of tbg :)
-txt graph with UTF characters
+txt graph with UTF characters,
 example:
 
 sar -q |head -50 | utextgraph
