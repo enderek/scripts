@@ -1,0 +1,143 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+use Term::ANSIColor qw(:constants);
+
+# simple txt bar graph v.2 :)
+# (c) by Ender <ender@kofeina.net> 2010
+
+binmode(STDOUT, ":utf8");
+
+my $localmax = 8;
+my $localmin = 0;
+my $max=0;
+my $min=100000000;
+my $step=1;
+my @vals;
+my $Conf;
+
+my $graph = {
+   0 => "\x{2581}",
+   1 => "\x{2581}",
+   2 => "\x{2582}",
+   3 => "\x{2583}",
+   4 => "\x{2584}",
+   5 => "\x{2585}",
+   6 => "\x{2586}",
+   7 => "\x{2587}",
+   8 => "\x{2588}",
+};
+
+# help
+if(defined($ARGV[0]) && ($ARGV[0] eq '-h' || $ARGV[0] eq '--help')){
+print qq{$0 (txt bar graph) by Ender
+under GPL v2
+
+Usage:
+    cat values | $0 [--c=2][--w=1][--time=1]
+
+example:
+ldavg-1
+sar -q | awk '{print \$5}' | perl utextgraph --c=2
+or (time val format)
+sar -q | awk '{print \$1," ",\$5}' | perl utextgraph --c=2 --w=1 --time
+};
+exit;
+};
+
+if(defined @ARGV){
+   @vals=@ARGV;
+   foreach(@vals){
+      if(/^--([^\s]+)\=([^\s]+)/){
+         $Conf->{$1} = $2;
+      };
+      if(/^--time/){
+         $Conf->{time} = 1;
+      }
+   };
+};
+
+#use Data::Dumper;
+#print Dumper $Conf;
+
+@vals=<STDIN>;
+
+my @time_arr;
+my @val_arr;
+
+for my $val (@vals){
+   $val =~ s/,/./;
+   $val =~ s/\n//;
+   my $time = '';
+   # detect time:
+   if(defined($Conf->{time})){
+      if($val =~ /(^[0-9:]*\.*[0-9:]+)\s+([+-]?[0-9]*\.*[0-9]+)/){
+         $time = $1;
+         $val  = $2;
+         push @time_arr, $time;
+         $max=$val if $val>$max;
+         $min=$val if $val<$min;
+         push @val_arr,$val if $val ne '';
+      };
+   }
+   else{
+      if($val =~ /^[+-]?[0-9]*\.*[0-9]+$/){
+         $max=$val if $val>$max;
+         $min=$val if $val<$min;
+      }
+      else{
+         $val='';
+      };
+      push @val_arr,$val if $val ne '';
+   };
+   
+
+};
+
+$step=($max-$min)/$localmax;
+
+print "Min: $min\tMax: ";
+   if(defined $Conf->{c} && $max>$Conf->{c}){
+      print BOLD.RED;
+   }
+   elsif(defined $Conf->{w} && $max>$Conf->{w}){
+      print BOLD.YELLOW;
+   };
+
+print $max.RESET;
+print "\tStep: $step\n";
+
+for(@val_arr){
+   my $t = ($_-$min)/$step;
+   my $val = int(($_-$min)/$step);
+   if(defined $Conf->{c} && $_>$Conf->{c}){
+      print BOLD.RED;
+   }
+   elsif(defined $Conf->{w} && $_>$Conf->{w}){
+      print BOLD.YELLOW;
+   };
+   print $graph->{$val} . RESET;
+};
+
+print $/;
+if($time_arr[0]){
+   for(my $i=0;$i<9;$i=$i+1){
+      for(@time_arr){
+         if(length($_)>$i){
+            print substr($_,$i,1);
+         }
+         else{
+            print " ";
+         };
+      };
+      print $/;
+   };
+};
+
+print $/;
+
+=eat
+this software is licensed under the GNU General Public License version 2. For the
+full license information, please visit http://www.gnu.org/copyleft/gpl.html
+=cut
