@@ -1,0 +1,9 @@
+linux:
+ifconfig eth0 | perl -nle 'print $1 if/addr:([\d+\.]+)/'
+cat /proc/net/arp  | perl -nle 'print $1 if/([\d\.]+)/'
+ifconfig eth0 | perl -nle 'print $1 if/r:([\d\.]+) /'
+ip a s eth0 | perl -nle 'print $1 if/t ([\d\.]+)/'
+hostname -I
+
+mac:
+ifconfig eth0 | perl -nle 's/://g;print $1 if/H.{6}(.*)/'
