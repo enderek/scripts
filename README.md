@@ -39,9 +39,8 @@ Min: 0.40       Max: 2.98       Step: 0.3225
 
 -----------------------------------------------------------------------------
 
-yaph - yet another perl hacker, dirty and ugly oneliner :)
+japh - just another perl hacker, dirty and ugly oneliner :)
 
 -----------------------------------------------------------------------------
 
 some_ways_to_get_linux_ip_address - list of commands return ip address
-
