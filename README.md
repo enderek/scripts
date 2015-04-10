@@ -33,9 +33,9 @@ utextgraph - new version of tbg :)
 txt graph with UTF characters,
 example:
 
-sar -q |head -50 | utextgraph
-Min: 0.40       Max: 2.98       Step: 0.3225
-▁▁▁▁▁▁▁▁▄▅▂▁▁▁▁▁▁▁▁▁▂▁▁▁▁▁▂▂▂▂▁▁▁▁▁▁▁▁▂▆█▅▁▁▁▁▁
+    sar -q |head -50 | utextgraph
+    Min: 0.40       Max: 2.98       Step: 0.3225
+    ▁▁▁▁▁▁▁▁▄▅▂▁▁▁▁▁▁▁▁▁▂▁▁▁▁▁▂▂▂▂▁▁▁▁▁▁▁▁▂▆█▅▁▁▁▁▁
 
 -----------------------------------------------------------------------------
 
