@@ -137,7 +137,5 @@ if($time_arr[0]){
 
 print $/;
 
-=eat
-this software is licensed under the GNU General Public License version 2. For the
-full license information, please visit http://www.gnu.org/copyleft/gpl.html
-=cut
+# this software is licensed under the GNU General Public License version 2. For the
+# full license information, please visit http://www.gnu.org/copyleft/gpl.html

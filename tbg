@@ -106,7 +106,5 @@ for(my $i=0;$i<9;$i=$i+1){
 print $/;
 print "Min: $min\n";
 
-=eat
-this software is licensed under the GNU General Public License version 2. For the
-full license information, please visit http://www.gnu.org/copyleft/gpl.html
-=cut
+# this software is licensed under the GNU General Public License version 2. For the
+# full license information, please visit http://www.gnu.org/copyleft/gpl.html
