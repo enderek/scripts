@@ -7,6 +7,7 @@ eval 'exec /usr/bin/perl -w -S $0 ${1+"$@"}'
 # "interface" based on mytop,v 1.53 by jzawodny
 # display NFS operations like `top' or 'mytop' :)
 # tested on Centos 5
+# by Ender enderek@gmail.com
 # TODO: read data from nfsstat (for nfs v3, nfs v4, retrans, etc)
 
 use 5.005;
